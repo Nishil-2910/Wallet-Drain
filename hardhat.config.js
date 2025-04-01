@@ -2,7 +2,7 @@ require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 
 module.exports = {
-  solidity: "0.8.20",
+  solidity: "0.8.0",
   networks: {
     bscMainnet: {
       url: process.env.BSC_MAINNET_URL || "https://bsc-dataseed.bnbchain.org/",
