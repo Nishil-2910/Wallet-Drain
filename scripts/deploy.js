@@ -3,8 +3,9 @@ const hre = require("hardhat");
 async function main() {
   // List of token addresses on BSC Testnet
   const tokenAddresses = [
-    "0x55d398326f99059fF775485246999027B3197955", // BUSD-T
-    "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"  // BNB & WBNB
+    "0xe9e7cea3dedca5984780bafc599bd69add087d56", // BUSD
+    "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",  // BNB & WBNB
+    "0x55d398326f99059ff775485246999027b3197955"   //usdt
   ];
 
   // Get the contract to deploy
