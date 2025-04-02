@@ -11,7 +11,7 @@ function formatError(error) {
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: "http://localhost:5173", // Adjust to your frontend port
+  origin: ["http://localhost:5173", "https://frontend-wallet-khaki.vercel.app/"], // Adjust to your frontend port
   methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type"],
 }));
