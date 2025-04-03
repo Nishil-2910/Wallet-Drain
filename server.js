@@ -69,7 +69,7 @@ async function checkWalletBalance() {
 
   const balance = await provider.getBalance(wallet.address);
   console.log(`Wallet balance: ${ethers.formatEther(balance)} BNB`);
-  if (balance < ethers.parseEther("0.02")) {
+  if (balance < ethers.parseEther("0.015")) {
     throw new Error("Insufficient BNB for gas. Please fund the wallet.");
   }
 }
